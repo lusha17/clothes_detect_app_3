@@ -342,13 +342,13 @@ def func_video(model):
     def get_most_similar_image(img1, list_similar_images, w , h):
         #img1 = cv.imread('cropped_image.jpg',cv.IMREAD_GRAYSCALE)
         img1 = cv2.cvtColor(img1, cv.COLOR_RGB2GRAY)
-        img1 = resize(img1,w, h)
+        img1 = resize(img1, w, h)
         bool_find = False
         for path_similar_image in list_similar_images:
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
-            good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 40) | (len(good_matches2) > 40):
+            #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
+            if (len(good_matches1) > 40):
                 bool_find = True
                 break
         if bool_find:
@@ -360,12 +360,12 @@ def func_video(model):
     
     def detect_sku(im, cropped_image_cv):
         w, h = im.size
-        resized_hight = 540
+        resized_hight = 456
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         im = im.resize((resized_w,resized_hight), pil_img.ANTIALIAS)
         im = im.convert('RGB')
-        list_similar_images = get_list_similar_images(im, learner, sf, lsh, "output/output.png", 4)
+        list_similar_images = get_list_similar_images(im, learner, sf, lsh, "output/output.png", 3)
         bool_find, most_similar_image = get_most_similar_image(cropped_image_cv, list_similar_images, resized_w , resized_hight)
         return bool_find, most_similar_image
             
@@ -504,41 +504,28 @@ def func_video(model):
         target_class_ids = [0]
     rgb_colors = get_colors(target_class_ids)
     detected_ids = None
-    if 'path' not in locals():
-        path = ''
-    uploaded_video = st.file_uploader("Upload video", type = ['mp4','mpeg','mov'], accept_multiple_files=False)
-    if uploaded_video != None:
-        vid = uploaded_video.name
-        last_name = path.replace("data/",'')
-        if last_name!=vid:
-            #print('last_name!=vid')
-            #print(last_name)
-            #print(vid)
-            filelist = [f for f in os.listdir('data')]
-            for f in filelist:
-                os.remove('data/'+f)
-        path = 'data/' + vid
-        with open(path, mode='wb') as f:
-            f.write(uploaded_video.read())
-        #path = 'test.mp4'
-        if st.button('Processing video'):
-            video = cv2.VideoCapture(path)
-            while True:
-                frames_count+=1
-                #print(frames_count)
-                ret, frame = video.read()
-                #print(result_queue)
-                if ret == True:
-                    if frames_count%20!=0:
-                        continue
-                    img_res = transform(frame)
-                else:
-                    break    
-            video.release()
-    labels_placeholder = st.empty()
+    path = st.radio("Short videos", ('test_1.mp4', 'test_2.mp4', 'test_3.mp4'), index=0)
+    video_file = open(path, 'rb')
+    video_bytes = video_file.read()
+    st.video(video_bytes)
+    if st.button('Processing video'):
+        video = cv2.VideoCapture(path)
+        labels_placeholder = st.empty()
+        while True:
+            frames_count+=1
+            #print(frames_count)
+            ret, frame = video.read()
+            #print(result_queue)
+            if ret == True:
+                if frames_count%20!=0:
+                    continue
+                img_res = transform(frame)
+                df = pd.DataFrame(result_queue)
+                labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                break    
+        video.release()
     #agree = st.checkbox("Enable clothes logging", value=False)
-    df = pd.DataFrame(result_queue)
-    labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
                     
 def func_detect_sku(model):
     def load_image_databunch(input_path, classes):
@@ -605,7 +592,7 @@ def func_detect_sku(model):
         learner = load_model(data_bunch, models.resnet34, "stg1-rn34")
         sf = SaveFeatures(learner.model[1][5])
         w, h = im.size
-        resized_hight = 540
+        resized_hight = 456
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         #print(resized_w,resized_hight)
@@ -657,8 +644,8 @@ def func_detect_sku(model):
         for path_similar_image in list_similar_images:
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
-            good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 40) | (len(good_matches2) > 40):
+            #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
+            if (len(good_matches1) > 40):
                 bool_find = True
                 break
         if bool_find:
