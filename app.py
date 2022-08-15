@@ -1,3 +1,4 @@
+import copy
 import sys
 import gc
 import os
@@ -43,7 +44,7 @@ import numpy as np
 
 lock = threading.Lock()
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.4
+DEFAULT_CONFIDENCE_THRESHOLD = 0.35
 
 CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
 
@@ -96,7 +97,7 @@ def func_image(model):
     CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
     
 
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.4
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.35
 
     result_queue = [] 
 
@@ -180,7 +181,7 @@ def func_web(model):
     CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
     
 
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.4
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.35
 
     result_queue = [] 
 
@@ -351,7 +352,7 @@ def func_video(model):
                 bool_find = True
                 break
         if bool_find:
-            img3 = cv2.cvtColor(img1, cv.COLOR_GRAY2RGB)
+            img3 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_COLOR) 
         else:
             img3 = None
         return bool_find, img3
@@ -359,21 +360,13 @@ def func_video(model):
     
     def detect_sku(im, cropped_image_cv):
         w, h = im.size
-        if (w>540) | (h>540):
-            if w > h:
-                correction = w - 540
-            else:
-                correction = h - 540
-            im = im.resize((w-correction,h-correction), pil_img.ANTIALIAS)
-        elif (w<320) | (h<320):
-            if h > w:
-                correction = 456 - w
-            else:
-                correction = 456 - h
-            im = im.resize((w+correction,h+correction), pil_img.ANTIALIAS)
+        resized_hight = 540
+        wpercent = (resized_hight/float(h))
+        resized_w = int((float(w)*float(wpercent)))
+        im = im.resize((resized_w,resized_hight), pil_img.ANTIALIAS)
         im = im.convert('RGB')
         list_similar_images = get_list_similar_images(im, learner, sf, lsh, "output/output.png", 4)
-        bool_find, most_similar_image = get_most_similar_image(cropped_image_cv, list_similar_images, w , h)
+        bool_find, most_similar_image = get_most_similar_image(cropped_image_cv, list_similar_images, resized_w , resized_hight)
         return bool_find, most_similar_image
             
     RTC_CONFIGURATION = RTCConfiguration(
@@ -383,10 +376,9 @@ def func_video(model):
     CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
     
 
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.35
 
     result_queue = [] 
-    global frames_count
     frames_count = 0
     
     classes = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress', 'vest dress','sling dress']
@@ -458,55 +450,42 @@ def func_video(model):
     
 
     def transform(frame):
-        with lock:
-            global frames_count 
-            frames_count+=1
-        #print(frames_count)
-        if frames_count%10==0:
-            pass
-        else:
-            return frame
-        img = frame.to_ndarray(format="bgr24")        
+        #img = frame.to_ndarray(format="bgr24")   
+        img = frame
         img_ch = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         result = get_preds(img_ch)
         result = result[np.isin(result[:,-1], target_class_ids)]  
         dict_cropped_image = {}
         for bbox_data in result:
             xmin, ymin, xmax, ymax, conf, label = bbox_data
-            if conf > confidence_threshold:
+            conf = round(conf, 2)
+            if conf >= confidence_threshold:
                 xmin = int(xmin)
                 ymin = int(ymin)
                 xmax = int(xmax)
                 ymax = int(ymax)
                 p0, p1, label = (xmin, ymin), (xmax, ymax), int(label)
                 class_ = CLASSES[label]
-                img = cv2.rectangle(img, p0, p1, rgb_colors[label], 2) 
-                ytext = ymin - 10 if ymin - 10 > 10 else ymin + 15
-                xtext = xmin + 10
-                text_for_vis = '{} {}'.format(class_, str(conf.round(2)))
-                img = cv2.putText(img, text_for_vis, (int(xtext), int(ytext)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, rgb_colors[label], 2,)
-                if agree:
-                    cropped_image = img[ymin:ymax, xmin:xmax]
-                    w, h, t = cropped_image.shape
-                    dict_cropped_image[w+h] = cropped_image
-                img = cv2.rectangle(img, p0, p1, rgb_colors[label], 2) 
-                ytext = ymin - 10 if ymin - 10 > 10 else ymin + 15
-                xtext = xmin + 10
-                text_for_vis = '{} {}'.format(class_, str(conf.round(2)))
-                img = cv2.putText(img, text_for_vis, (int(xtext), int(ytext)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, rgb_colors[label], 2,)
-            if agree & len(dict_cropped_image)!=0:
-                max_element = max(dict_cropped_image.keys())
-                cropped_image_cv = dict_cropped_image[max_element]
+                cropped_image = img[ymin:ymax, xmin:xmax]
+                w, h, t = cropped_image.shape
+                dict_cropped_image[w+h] = cropped_image
+        if len(dict_cropped_image)!=0:
+            list_els = list(dict_cropped_image.keys())
+            list_els.sort()
+            list_els = list_els[-3:]
+            #print(list_els)
+            for el in list_els:
+                cropped_image_cv = dict_cropped_image[el]
                 cropped_image_pil = pil_img.fromarray(cropped_image_cv)
                 bool_find, sku_image = detect_sku(cropped_image_pil, cropped_image_cv)
                 html_cropped_image_cv = img_to_html(cropped_image_cv)
                 if bool_find:
                     html_sku_image = img_to_html(sku_image)
+                    result_queue.insert(0, {'cropped_frame': html_cropped_image_cv, 'sku': html_sku_image})
                 else:
                     html_sku_image = 'No match found'
-                with lock:
-                    result_queue.insert(0, {'cropped_frame': html_cropped_image_cv, 'sku': html_sku_image})
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+        #return av.VideoFrame.from_ndarray(img, format="bgr24")
+        return img
     
     
             
@@ -532,36 +511,34 @@ def func_video(model):
         vid = uploaded_video.name
         last_name = path.replace("data/",'')
         if last_name!=vid:
-            print('last_name!=vid')
-            print(last_name)
-            print(vid)
+            #print('last_name!=vid')
+            #print(last_name)
+            #print(vid)
             filelist = [f for f in os.listdir('data')]
             for f in filelist:
                 os.remove('data/'+f)
         path = 'data/' + vid
         with open(path, mode='wb') as f:
             f.write(uploaded_video.read())
-    ctx_l = webrtc_streamer(
-            key="key",
-            mode=WebRtcMode.RECVONLY,
-            rtc_configuration=RTC_CONFIGURATION,
-            media_stream_constraints={
-                "video": True,
-                "audio": False,
-            },
-            player_factory=create_player,
-            video_frame_callback=transform
-    )
-    agree = st.checkbox("Enable clothes logging", value=False)
-    if agree:
-        if ctx_l.state.playing:
-            labels_placeholder = st.empty()
+        #path = 'test.mp4'
+        if st.button('Processing video'):
+            video = cv2.VideoCapture(path)
             while True:
-                time.sleep(0.5)
-                with lock:
-                    result_queue = result_queue[:5]
-                    df = pd.DataFrame(result_queue)
-                    labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
+                frames_count+=1
+                #print(frames_count)
+                ret, frame = video.read()
+                #print(result_queue)
+                if ret == True:
+                    if frames_count%20!=0:
+                        continue
+                    img_res = transform(frame)
+                else:
+                    break    
+            video.release()
+    labels_placeholder = st.empty()
+    #agree = st.checkbox("Enable clothes logging", value=False)
+    df = pd.DataFrame(result_queue)
+    labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
                     
 def func_detect_sku(model):
     def load_image_databunch(input_path, classes):
@@ -628,24 +605,17 @@ def func_detect_sku(model):
         learner = load_model(data_bunch, models.resnet34, "stg1-rn34")
         sf = SaveFeatures(learner.model[1][5])
         w, h = im.size
-        if (w>540) | (h>540):
-            if w > h:
-                correction = w - 540
-            else:
-                correction = h - 540
-            im = im.resize((w-correction,h-correction), pil_img.ANTIALIAS)
-        elif (w<320) | (h<320):
-            if h > w:
-                correction = 456 - w
-            else:
-                correction = 456 - h
-            im = im.resize((w+correction,h+correction), pil_img.ANTIALIAS)
+        resized_hight = 540
+        wpercent = (resized_hight/float(h))
+        resized_w = int((float(w)*float(wpercent)))
+        #print(resized_w,resized_hight)
+        im = im.resize((resized_w,resized_hight), pil_img.ANTIALIAS)
         im = im.convert('RGB')
         lsh = pickle.load(open("lsh.p", "rb"))
         list_similar_images, img_res_1 = view_similar_images(im, learner, sf, lsh, "output/output.png", 5)
         #img_res_1 = cv.imread('output/output.png', 1)
         st.pyplot(img_res_1)
-        bool_find, img_res_2 = get_most_similar_image(cropped_image_cv, list_similar_images, w , h)
+        bool_find, img_res_2 = get_most_similar_image(cropped_image_cv, list_similar_images, resized_w , resized_hight)
         if bool_find:
             st.image(img_res_2)
 
@@ -732,7 +702,7 @@ def func_detect_sku(model):
         return list_images, fig
 
     CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.4
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.35
 
     result_queue = [] 
 
@@ -784,7 +754,8 @@ def func_detect_sku(model):
         dict_cropped_image = {}
         for bbox_data in result_copy:
             xmin, ymin, xmax, ymax, conf, label = bbox_data
-            if conf > confidence_threshold:
+            conf = round(conf, 2)
+            if conf >= confidence_threshold:
                 xmin = int(xmin)
                 ymin = int(ymin)
                 xmax = int(xmax)
