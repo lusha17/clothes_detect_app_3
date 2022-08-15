@@ -348,7 +348,7 @@ def func_video(model):
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
             #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 40):
+            if (len(good_matches1) > 27):
                 bool_find = True
                 break
         if bool_find:
@@ -360,7 +360,7 @@ def func_video(model):
     
     def detect_sku(im, cropped_image_cv):
         w, h = im.size
-        resized_hight = 456
+        resized_hight = 450
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         im = im.resize((resized_w,resized_hight), pil_img.ANTIALIAS)
@@ -409,8 +409,10 @@ def func_video(model):
         matches = FLANN.knnMatch(queryDescriptors = descriptors1, trainDescriptors = descriptors2, k = 2)
         good_matches = []
         for m, n in matches:
-                if m.distance < ratio_thresh_for_key_points * n.distance:
-                    good_matches.append(m)
+            if m.distance < ratio_thresh_for_key_points * n.distance:
+                good_matches.append(m)
+            if len(good_matches)>70:
+                break
         return good_matches
 
     def features(image, detector, descriptor):
@@ -592,7 +594,7 @@ def func_detect_sku(model):
         learner = load_model(data_bunch, models.resnet34, "stg1-rn34")
         sf = SaveFeatures(learner.model[1][5])
         w, h = im.size
-        resized_hight = 456
+        resized_hight = 450
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         #print(resized_w,resized_hight)
@@ -626,8 +628,10 @@ def func_detect_sku(model):
         ratio_thresh = 0.8
         good_matches = []
         for m, n in matches:
-                if m.distance < ratio_thresh * n.distance:
-                    good_matches.append(m)
+            if m.distance < ratio_thresh * n.distance:
+                good_matches.append(m)
+            if len(good_matches)>70:
+                break
         return good_matches
 
     def features(image, detector, descriptor):
@@ -645,7 +649,8 @@ def func_detect_sku(model):
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
             #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 40):
+            print(len(good_matches1))
+            if (len(good_matches1) > 27):
                 bool_find = True
                 break
         if bool_find:
