@@ -2,6 +2,7 @@ import copy
 import sys
 import gc
 import os
+import queue
 from typing import List
 from streamlit_webrtc import ClientSettings
 from typing import List, NamedTuple, Optional
@@ -123,12 +124,7 @@ def func_image(model):
     
     def create_player():
         return MediaPlayer(path)
-
-    
-
-    
-    
-            
+  
     confidence_threshold = st.slider("Confidence threshold", 0.0, 1.0, DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
 
     #prediction_mode = st.sidebar.radio("", ('Single image', 'Web camera', 'Local video'), index=2)
@@ -223,11 +219,6 @@ def func_web(model):
                 ymax = int(ymax)
                 p0, p1, label = (xmin, ymin), (xmax, ymax), int(label)
                 class_ = CLASSES[label]
-                img = cv2.rectangle(img, p0, p1, rgb_colors[label], 2) 
-                ytext = ymin - 10 if ymin - 10 > 10 else ymin + 15
-                xtext = xmin + 10
-                text_for_vis = '{} {}'.format(class_, str(conf.round(2)))
-                img = cv2.putText(img, text_for_vis, (int(xtext), int(ytext)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, rgb_colors[label], 2,)
                 if agree:
                     time_detect = datetime.datetime.now(pytz.timezone("America/New_York")).replace(tzinfo=None).strftime("%m-%d-%y %H:%M:%S")
                     cropped_image = img[ymin:ymax, xmin:xmax]
@@ -274,6 +265,7 @@ def func_web(model):
                     labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
     
 def func_video(model):
+    
     def load_image_databunch(input_path, classes):
         """
         Code to define a databunch compatible with model
@@ -342,17 +334,17 @@ def func_video(model):
     def get_most_similar_image(img1, list_similar_images, w , h):
         #img1 = cv.imread('cropped_image.jpg',cv.IMREAD_GRAYSCALE)
         img1 = cv2.cvtColor(img1, cv.COLOR_RGB2GRAY)
-        img1 = resize(img1, w, h)
+        img1 = resize(img1,w, h)
         bool_find = False
         for path_similar_image in list_similar_images:
-            img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
+            img2 = cv.imread('cropped_dataset/'+path_similar_image, cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
             #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 27):
+            if (len(good_matches1) > 40):
                 bool_find = True
                 break
         if bool_find:
-            img3 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_COLOR) 
+            img3 = cv.imread('cropped_dataset/'+path_similar_image, cv.IMREAD_COLOR) 
         else:
             img3 = None
         return bool_find, img3
@@ -360,12 +352,12 @@ def func_video(model):
     
     def detect_sku(im, cropped_image_cv):
         w, h = im.size
-        resized_hight = 450
+        resized_hight = 540
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         im = im.resize((resized_w,resized_hight), pil_img.ANTIALIAS)
         im = im.convert('RGB')
-        list_similar_images = get_list_similar_images(im, learner, sf, lsh, "output/output.png", 3)
+        list_similar_images = get_list_similar_images(im, learner, sf, lsh, "output/output.png", 4)
         bool_find, most_similar_image = get_most_similar_image(cropped_image_cv, list_similar_images, resized_w , resized_hight)
         return bool_find, most_similar_image
             
@@ -376,9 +368,12 @@ def func_video(model):
     CLASSES_CUSTOM = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','vest','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress','vest dress','sling dress']
     
 
-    DEFAULT_CONFIDENCE_THRESHOLD = 0.35
+    DEFAULT_CONFIDENCE_THRESHOLD = 0.4
 
-    result_queue = [] 
+    result_queue = (
+        queue.Queue()
+    ) 
+    global frames_count
     frames_count = 0
     
     classes = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress', 'vest dress','sling dress']
@@ -409,10 +404,8 @@ def func_video(model):
         matches = FLANN.knnMatch(queryDescriptors = descriptors1, trainDescriptors = descriptors2, k = 2)
         good_matches = []
         for m, n in matches:
-            if m.distance < ratio_thresh_for_key_points * n.distance:
-                good_matches.append(m)
-            if len(good_matches)>70:
-                break
+                if m.distance < ratio_thresh_for_key_points * n.distance:
+                    good_matches.append(m)
         return good_matches
 
     def features(image, detector, descriptor):
@@ -452,8 +445,12 @@ def func_video(model):
     
 
     def transform(frame):
-        #img = frame.to_ndarray(format="bgr24")   
-        img = frame
+        with lock:
+            global frames_count 
+            frames_count+=1
+        if frames_count % 20!=0:
+            return frame
+        img = frame.to_ndarray(format="bgr24")   
         img_ch = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         result = get_preds(img_ch)
         result = result[np.isin(result[:,-1], target_class_ids)]  
@@ -471,23 +468,16 @@ def func_video(model):
                 cropped_image = img[ymin:ymax, xmin:xmax]
                 w, h, t = cropped_image.shape
                 dict_cropped_image[w+h] = cropped_image
-        if len(dict_cropped_image)!=0:
+        if agree & len(dict_cropped_image)!=0:
             list_els = list(dict_cropped_image.keys())
             list_els.sort()
-            list_els = list_els[-3:]
-            #print(list_els)
+            list_els = list_els[-5:]
             for el in list_els:
                 cropped_image_cv = dict_cropped_image[el]
-                cropped_image_pil = pil_img.fromarray(cropped_image_cv)
-                bool_find, sku_image = detect_sku(cropped_image_pil, cropped_image_cv)
-                html_cropped_image_cv = img_to_html(cropped_image_cv)
-                if bool_find:
-                    html_sku_image = img_to_html(sku_image)
-                    result_queue.insert(0, {'cropped_frame': html_cropped_image_cv, 'sku': html_sku_image})
-                else:
-                    html_sku_image = 'No match found'
-        #return av.VideoFrame.from_ndarray(img, format="bgr24")
-        return img
+                with lock:
+                    #cv.imwrite(str(frames_count)+'_'+str(el)+'.jpg', cropped_image_cv)
+                    result_queue.put(cropped_image_cv)
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
     
     
             
@@ -506,28 +496,37 @@ def func_video(model):
         target_class_ids = [0]
     rgb_colors = get_colors(target_class_ids)
     detected_ids = None
-    path = st.radio("Short videos", ('test_1.mp4', 'test_2.mp4', 'test_3.mp4'), index=0)
-    video_file = open(path, 'rb')
-    video_bytes = video_file.read()
-    st.video(video_bytes)
-    if st.button('Processing video'):
-        video = cv2.VideoCapture(path)
+    path = 'test_3.mp4'
+    ctx_l = webrtc_streamer(
+        key="key",
+        mode=WebRtcMode.RECVONLY,
+        rtc_configuration=RTC_CONFIGURATION,
+        media_stream_constraints={"video": True,"audio": False,},
+        player_factory=create_player,
+        video_frame_callback=transform
+    )
+    agree = st.checkbox("Enable clothes logging", value=False)
+    list_matches = []
+    if agree:
         labels_placeholder = st.empty()
-        while True:
-            frames_count+=1
-            #print(frames_count)
-            ret, frame = video.read()
-            #print(result_queue)
-            if ret == True:
-                if frames_count%20!=0:
+        if ctx_l.state.playing:
+            while True:
+                time.sleep(0.5)
+                try:
+                    cropped_image_cv = result_queue.get(timeout=1.0)
+                except:
+                    cropped_image_cv = []
+                if cropped_image_cv==[]:
                     continue
-                img_res = transform(frame)
-                df = pd.DataFrame(result_queue)
+                cropped_image_pil = pil_img.fromarray(cropped_image_cv)
+                bool_find, sku_image = detect_sku(cropped_image_pil, cropped_image_cv)
+                if bool_find:
+                    html_cropped_image_cv = img_to_html(cropped_image_cv)
+                    html_sku_image = img_to_html(sku_image)
+                    list_matches.insert(0, {'cropped_frame': html_cropped_image_cv, 'sku': html_sku_image})       
+                df = pd.DataFrame(list_matches)
                 labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
-            else:
-                break    
-        video.release()
-    #agree = st.checkbox("Enable clothes logging", value=False)
+        
                     
 def func_detect_sku(model):
     def load_image_databunch(input_path, classes):
@@ -594,7 +593,7 @@ def func_detect_sku(model):
         learner = load_model(data_bunch, models.resnet34, "stg1-rn34")
         sf = SaveFeatures(learner.model[1][5])
         w, h = im.size
-        resized_hight = 450
+        resized_hight = 540
         wpercent = (resized_hight/float(h))
         resized_w = int((float(w)*float(wpercent)))
         #print(resized_w,resized_hight)
@@ -628,10 +627,8 @@ def func_detect_sku(model):
         ratio_thresh = 0.8
         good_matches = []
         for m, n in matches:
-            if m.distance < ratio_thresh * n.distance:
-                good_matches.append(m)
-            if len(good_matches)>70:
-                break
+                if m.distance < ratio_thresh * n.distance:
+                    good_matches.append(m)
         return good_matches
 
     def features(image, detector, descriptor):
@@ -648,9 +645,8 @@ def func_detect_sku(model):
         for path_similar_image in list_similar_images:
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
-            #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            print(len(good_matches1))
-            if (len(good_matches1) > 27):
+            good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
+            if (len(good_matches1) > 40) | (len(good_matches2) > 40):
                 bool_find = True
                 break
         if bool_find:
@@ -759,9 +755,6 @@ def func_detect_sku(model):
             max_element = max(dict_cropped_image.keys())
             cropped_image_cv = dict_cropped_image[max_element]
             cropped_image_pil = pil_img.fromarray(cropped_image_cv)
-            #cv.imwrite('cropped_image.jpg', cropped_image)
-            #cropped_image = pil_img.open('cropped_image.jpg')
-            #image1 = cv.imread(filename = 'cropped_image.jpg', flags = cv.IMREAD_GRAYSCALE)
             detect_sku(cropped_image_pil, cropped_image_cv)
             
             
