@@ -1,3 +1,5 @@
+
+
 import copy
 import sys
 import gc
@@ -42,6 +44,7 @@ import os
 from imutils import resize
 from lshash import LSHash
 import numpy as np
+st.set_page_config(layout="wide")
 
 lock = threading.Lock()
 
@@ -79,12 +82,12 @@ def main():
     
     if pages[1].button("Reload App"):
         reload()
-    prediction_mode = st.sidebar.radio("", ('Single image', 'Web camera', 'Local video'), index=2)
+    prediction_mode = st.sidebar.radio("", ('Single image', 'Local video'), index=1)
     
     if prediction_mode == 'Single image':
         func_detect_sku(model)
-    elif prediction_mode == 'Web camera':
-        func_web(model)
+        #elif prediction_mode == 'Web camera':
+        #    func_web(model)
     elif prediction_mode == 'Local video':
         func_video(model)
     
@@ -184,7 +187,6 @@ def func_web(model):
                     labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
 
 def func_video(model):
-    
     def load_image_databunch(input_path, classes):
         tfms = get_transforms(
             do_flip=False,
@@ -194,7 +196,6 @@ def func_video(model):
             max_zoom=1,
             max_warp=0,
         )
-
         data_bunch = ImageDataBunch.single_from_classes(
             Path(input_path), classes, ds_tfms=tfms, size=640
         )
@@ -279,10 +280,8 @@ def func_video(model):
 
     DEFAULT_CONFIDENCE_THRESHOLD = 0.4
 
-    result_queue = (
-        queue.Queue()
-    ) 
-    global frames_count
+    #result_queue = []
+    #global frames_count
     frames_count = 0
     
     classes = [ 'short sleeve top', 'long sleeve top','short sleeve outwear','long sleeve outwear','sling','shorts','trousers','skirt','short sleeve dress', 'long sleeve dress', 'vest dress','sling dress']
@@ -354,12 +353,7 @@ def func_video(model):
     
 
     def transform(frame):
-        with lock:
-            global frames_count 
-            frames_count+=1
-        if frames_count % 20!=0:
-            return frame
-        img = frame.to_ndarray(format="bgr24")   
+        img = frame 
         img_ch = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         result = get_preds(img_ch)
         result = result[np.isin(result[:,-1], target_class_ids)]  
@@ -377,17 +371,72 @@ def func_video(model):
                 cropped_image = img[ymin:ymax, xmin:xmax]
                 w, h, t = cropped_image.shape
                 dict_cropped_image[w+h] = cropped_image
-        if agree & len(dict_cropped_image)!=0:
-            list_els = list(dict_cropped_image.keys())
-            list_els.sort()
-            list_els = list_els[-5:]
-            for el in list_els:
-                cropped_image_cv = dict_cropped_image[el]
-                with lock:
-                    result_queue.put(cropped_image_cv)
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+        result_queue = []
+        if len(dict_cropped_image)!=0:
+            #list_els = list(dict_cropped_image.keys())
+            #list_els.sort()
+            max_el = max(list(dict_cropped_image.keys()))
+            #list_els = list_els[-1:]
+            #for el in list_els:
+            cropped_image_cv = dict_cropped_image[max_el]
+            result_queue.append(cropped_image_cv)
+        return result_queue
     
+    def transform_2(frame):
+        #time.sleep(0.05)
+        return frame
     
+            
+    @st.cache(allow_output_mutation=True, max_entries=3, ttl=3600)
+    def about():
+        return """
+        <style>
+        img.centered {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 10px;
+            margin-bottom: 2.5px;
+        }
+
+        p.caption {
+            font-style: italic;
+            font-size: smaller;
+            font-variant: small-caps;
+        }
+        </style>
+
+        <div style="text-align: justify;">
+        <p>The input image is converted to an image embedding using the trained model and then multiple similar images are searched using the Approximate Nearest Neighbor in the SKU dataset.</p>
+        <p>Calculating the distance of the input image and the entire database, which may contain several thousand images, requires significant computational resources to search for similar images.</p>
+        <p>To solve the problem, locality sensitive hashing (LSH) is used, which is an approximate nearest neighbor algorithm that reduces computational complexity.</p>
+        </div>
+
+        <div style="text-align: center;">
+        <img src="http://drive.google.com/uc?export=view&id=17RDGMj6EWi6lnMBr8M0AtVO6BvxWrSo0" class="centered" width=600px>
+        <p class="caption" >First stage of detection</p>
+        </div>
+
+        <div style="text-align: justify;">
+        <p>Next, among the resulting small sample of images, we find the most similar image using the feature points method.</p>
+        <p>A number of features are extracted from an image, in a way that guarantees the same features will be recognized again even when rotated, scaled or skewed.</p>
+        <p>An image that has a high proportion of features that match the input image is considered to be an image of the same scene.</p>
+        </div>
+
+        <div style="text-align: center;">
+        <img src="http://drive.google.com/uc?export=view&id=1LojjJGJwwgo5QxrTPYg9pGMuBx7U4F4v" class="centered" width=300px>
+        <p class="caption" >Second stage of detection</p>
+        </div>
+
+        """
+    
+    moreInfo1 = st.empty()
+    moreInfo2 = st.empty()
+    moreInfo1.markdown(
+            "*Click below for Detector SKU solution information...*"
+        )
+    with moreInfo2.expander(""):
+        st.markdown(about(), unsafe_allow_html=True)
             
     confidence_threshold = st.slider("Confidence threshold", 0.0, 1.0, DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
 
@@ -403,41 +452,47 @@ def func_video(model):
         target_class_ids = [0]
     rgb_colors = get_colors(target_class_ids)
     detected_ids = None
-    path = st.text_input('Video filename:', 'test_1.mp4')
+    path = st.radio("Test video files:",('test1.mp4', 'test2.mp4', 'test3.mp4'))
     col1, col2 = st.columns([2, 1])
     with col1:
-        ctx_l = webrtc_streamer(
-            key="key",
-            mode=WebRtcMode.RECVONLY,
-            rtc_configuration=RTC_CONFIGURATION,
-            media_stream_constraints={"video": True,"audio": False,},
-            player_factory=create_player,
-            video_frame_callback=transform
-        )
-    agree = st.checkbox("Enable clothes logging", value=False)
+        #ctx_l = webrtc_streamer(key="key", mode=WebRtcMode.RECVONLY, rtc_configuration=RTC_CONFIGURATION, media_stream_constraints={"video": True,"audio": False,}, player_factory=create_player, video_frame_callback=transform_2)
+        video_file = open(path, 'rb')
+        video_bytes = video_file.read()
+        st.video(video_bytes)
+    with col2:
+        labels_placeholder = st.empty()
+    #agree = st.checkbox("Enable clothes logging", value=False)
     list_matches = []
-    if agree:
-        with col2:
-            labels_placeholder = st.empty()
-        if ctx_l.state.playing:
-            while True:
-                time.sleep(0.5)
-                try:
-                    cropped_image_cv = result_queue.get(timeout=1.0)
-                except:
-                    cropped_image_cv = []
-                if cropped_image_cv==[]:
+    if st.button('Find items'):
+        video = cv2.VideoCapture(path)
+        while True:
+            frames_count+=1
+            ret, frame = video.read()
+            if ret == True:
+                if frames_count%40!=0:
                     continue
-                cropped_image_pil = pil_img.fromarray(cropped_image_cv)
-                bool_find, sku_image = detect_sku(cropped_image_pil, cropped_image_cv)
-                if bool_find:
-                    cropped_image_cv = resize(cropped_image_cv, 100, 150)
-                    sku_image = resize(sku_image, 100, 150)
-                    html_cropped_image_cv = img_to_html(cropped_image_cv)
-                    html_sku_image = img_to_html(sku_image)
-                    list_matches.insert(0, {'Detected item': html_cropped_image_cv, 'SKU': html_sku_image})       
+                result_queue = transform(frame)
+                for cropped_image_cv in result_queue:
+                    cropped_image_pil = pil_img.fromarray(cropped_image_cv)
+                    bool_find, sku_image = detect_sku(cropped_image_pil, cropped_image_cv)
+                    if bool_find:
+                        cropped_image_cv = resize(cropped_image_cv, 100, 150)
+                        sku_image = resize(sku_image, 100, 150)
+                        html_cropped_image_cv = img_to_html(cropped_image_cv)
+                        html_sku_image = img_to_html(sku_image)
+                        list_matches.insert(0, {'Detected item': html_cropped_image_cv, 'SKU': html_sku_image})       
                 df = pd.DataFrame(list_matches)
+                hide_table_row_index = """
+                <style>
+                thead tr th:first-child {display:none}
+                tbody th {display:none}
+                </style>
+                """
+                st.markdown(hide_table_row_index , unsafe_allow_html=True)
                 labels_placeholder.write(df.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                break    
+        video.release()
         
                     
 def func_detect_sku(model):
@@ -450,11 +505,9 @@ def func_detect_sku(model):
             max_zoom=1,
             max_warp=0,
         )
-
         data_bunch = ImageDataBunch.single_from_classes(
             Path(input_path), classes, ds_tfms=tfms, size=640
         )
-
         return data_bunch
 
     def load_model(data_bunch, model_type, model_name):
@@ -465,7 +518,6 @@ def func_detect_sku(model):
 
     class SaveFeatures:
         features = None
-
         def __init__(self, m):
             self.hook = m.register_forward_hook(self.hook_fn)
             self.features = None
@@ -513,7 +565,6 @@ def func_detect_sku(model):
         else:
             st.write('Most similar image not found.')
 
-
     def get_key_points_by_images(image1, image2):
         detector = cv.BRISK_create()
         descriptor = cv.SIFT_create()
@@ -551,12 +602,12 @@ def func_detect_sku(model):
             img2 = cv.imread('cropped_dataset/'+path_similar_image,cv.IMREAD_GRAYSCALE) 
             good_matches1, keypoints11, keypoints21 = get_key_points_by_images(img1, img2)
             #good_matches2, keypoints12, keypoints22 = get_key_points_by_images(img2, img1)
-            if (len(good_matches1) > 28):
+            if (len(good_matches1) > 25):
                 bool_find = True
                 break
         if bool_find:
             img3 = cv.drawMatches(img1, keypoints11, img2, keypoints21, good_matches1, None, flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-            img3 = resize(img3, 300, 450)
+            img3 = resize(img3, 500, 750)
         else:
             img3 = None
         return bool_find, img3
@@ -611,6 +662,57 @@ def func_detect_sku(model):
                 color_dict[index] = (255,0,0)
         return color_dict
     
+    @st.cache(allow_output_mutation=True, max_entries=3, ttl=3600)
+    def about():
+        return """
+        <style>
+        img.centered {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 10px;
+            margin-bottom: 2.5px;
+        }
+
+        p.caption {
+            font-style: italic;
+            font-size: smaller;
+            font-variant: small-caps;
+        }
+        </style>
+
+        <div style="text-align: justify;">
+        <p>The input image is converted to an image embedding using the trained model and then multiple similar images are searched using the Approximate Nearest Neighbor in the SKU dataset.</p>
+        <p>Calculating the distance of the input image and the entire database, which may contain several thousand images, requires significant computational resources to search for similar images.</p>
+        <p>To solve the problem, locality sensitive hashing (LSH) is used, which is an approximate nearest neighbor algorithm that reduces computational complexity.</p>
+        </div>
+
+        <div style="text-align: center;">
+        <img src="http://drive.google.com/uc?export=view&id=17RDGMj6EWi6lnMBr8M0AtVO6BvxWrSo0" class="centered" width=600px>
+        <p class="caption" >First stage of detection</p>
+        </div>
+
+        <div style="text-align: justify;">
+        <p>Next, among the resulting small sample of images, we find the most similar image using the feature points method.</p>
+        <p>A number of features are extracted from an image, in a way that guarantees the same features will be recognized again even when rotated, scaled or skewed.</p>
+        <p>An image that has a high proportion of features that match the input image is considered to be an image of the same scene.</p>
+        </div>
+
+        <div style="text-align: center;">
+        <img src="http://drive.google.com/uc?export=view&id=1LojjJGJwwgo5QxrTPYg9pGMuBx7U4F4v" class="centered" width=300px>
+        <p class="caption" >Second stage of detection</p>
+        </div>
+
+        """
+    
+    moreInfo1 = st.empty()
+    moreInfo2 = st.empty()
+    moreInfo1.markdown(
+            "*Click below for Detector SKU solution information...*"
+        )
+    with moreInfo2.expander(""):
+        st.markdown(about(), unsafe_allow_html=True)
+        
     confidence_threshold = st.slider("Confidence threshold", 0.0, 1.0, DEFAULT_CONFIDENCE_THRESHOLD, 0.05)
 
     CLASSES = CLASSES_CUSTOM
@@ -626,6 +728,7 @@ def func_detect_sku(model):
         
     rgb_colors = get_colors(target_class_ids)
     detected_ids = None
+    path = st.radio("Test images:", ('test1.jpg', 'test2.jpg', 'test3.jpg'), index=0)
     uploaded_file = st.file_uploader("Choose an image", type=['png', 'jpg', 'jpeg'])
     if uploaded_file is not None:
         bytes_data = uploaded_file.getvalue()
@@ -655,7 +758,35 @@ def func_detect_sku(model):
             cropped_image_pil = pil_img.fromarray(cropped_image_cv)
             detect_sku(cropped_image_pil, cropped_image_cv)
         else:
-            st.write('No clothes found in image.')   
+            st.write('No clothes found in image.') 
+    else:
+        img_orig = cv2.imread(path, cv2.IMREAD_COLOR)
+        img = cv2.cvtColor(img_orig, cv2.COLOR_BGR2RGB)
+        result = get_preds(img)
+        result_copy = result.copy()
+        result_copy = result_copy[np.isin(result_copy[:,-1], target_class_ids)]
+        detected_ids = []
+        img_draw = img.copy().astype(np.uint8)
+        dict_cropped_image = {}
+        for bbox_data in result_copy:
+            xmin, ymin, xmax, ymax, conf, label = bbox_data
+            conf = round(conf, 2)
+            if conf >= confidence_threshold:
+                xmin = int(xmin)
+                ymin = int(ymin)
+                xmax = int(xmax)
+                ymax = int(ymax)
+                cropped_image = img[ymin:ymax, xmin:xmax]
+                w, h, t = cropped_image.shape
+                dict_cropped_image[w+h]=cropped_image
+        if len(dict_cropped_image)!=0:
+            max_element = max(dict_cropped_image.keys())
+            cropped_image_cv = dict_cropped_image[max_element]
+            cropped_image_pil = pil_img.fromarray(cropped_image_cv)
+            detect_sku(cropped_image_pil, cropped_image_cv)
+        else:
+            st.write('No clothes found in image.') 
+        
 
 if __name__ == "__main__":
     main()
